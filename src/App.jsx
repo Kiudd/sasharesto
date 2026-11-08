@@ -107,14 +107,27 @@ function getOpeningStatus(date) {
   return isOpen ? "Ouvert maintenant" : "Fermé · ouvre à 11 h";
 }
 
-function FoodVisual({ product, removed = [], className = "" }) {
+function FoodVisual({ product, removed = [], className = "", onClick }) {
   const kebabImage = product.id === "sasha" ? getKebabImage(product.ingredients, removed) : null;
   const friesImage = product.id === "frites" ? getFriesImage(product.ingredients, removed) : null;
   const variantImage = kebabImage ?? friesImage?.src;
   const visibleIngredients = product.id === "frites" || product.id === "sasha" ? [] : product.ingredients;
 
   return (
-    <div className={`food-plate ${className}`} aria-hidden="true">
+    <div
+      className={`food-plate ${className}${onClick ? " is-clickable" : ""}`}
+      aria-hidden={onClick ? undefined : true}
+      aria-label={onClick ? `Voir ${product.name}` : undefined}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={onClick ? (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      } : undefined}
+    >
       <img className="plate-image" src="/images/food/plate/H_M-removebg-preview.png" alt="" />
       <div className={`food food--${product.visual}`}>
         {variantImage ? (
@@ -180,6 +193,7 @@ function App() {
   const [selectedId, setSelectedId] = useState(PRODUCTS[0].id);
   const [changeAnimation, setChangeAnimation] = useState(null);
   const swipeStartX = useRef(null);
+  const swipeClickBlocked = useRef(false);
   const [quantity, setQuantity] = useState(1);
   const [sauce, setSauce] = useState(SAUCES[0]);
   const [removedByProduct, setRemovedByProduct] = useState({});
@@ -191,6 +205,7 @@ function App() {
   const [toast, setToast] = useState("");
   const [cartOpen, setCartOpen] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [productPanel, setProductPanel] = useState(null);
   const [orderMessage, setOrderMessage] = useState("");
   const [now, setNow] = useState(() => new Date());
 
@@ -216,8 +231,12 @@ function App() {
 
   useEffect(() => {
     document.body.classList.toggle("cart-open", cartOpen);
-    return () => document.body.classList.remove("cart-open");
-  }, [cartOpen]);
+    document.body.classList.toggle("product-panel-open", Boolean(productPanel));
+    return () => {
+      document.body.classList.remove("cart-open");
+      document.body.classList.remove("product-panel-open");
+    };
+  }, [cartOpen, productPanel]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -230,6 +249,7 @@ function App() {
       if (event.key === "Escape") {
         setCartOpen(false);
         setDialogOpen(false);
+        setProductPanel(null);
       }
       if (event.target instanceof HTMLElement && ["INPUT", "TEXTAREA"].includes(event.target.tagName)) return;
       if (event.key === "ArrowRight") moveProduct(1);
@@ -255,6 +275,15 @@ function App() {
     const index = PRODUCTS.findIndex((product) => product.id === selectedId);
     const nextIndex = (index + direction + PRODUCTS.length) % PRODUCTS.length;
     chooseProduct(PRODUCTS[nextIndex].id, direction);
+  }
+
+  function openProductDetails(id) {
+    chooseProduct(id);
+    setProductPanel("details");
+  }
+
+  function openCustomization() {
+    setProductPanel("customize");
   }
 
   function addToCart(item) {
@@ -312,10 +341,14 @@ function App() {
     setDialogOpen(false);
   }
 
-  const openCart = () => setCartOpen(true);
+  const openCart = () => {
+    setProductPanel(null);
+    setCartOpen(true);
+  };
   const closeOverlays = () => {
     setCartOpen(false);
     setDialogOpen(false);
+    setProductPanel(null);
   };
 
   return (
@@ -354,65 +387,10 @@ function App() {
               </span>
             </div>
 
-            <p className="field-label">Touchez un ingrédient pour le retirer</p>
-            <div className="chips">
-              {selectedProduct.ingredients.map((ingredient) => {
-                if (selectedId === "sasha" && ingredient === "Viande") {
-                  return <span className="chip ingredient ingredient-fixed" key={ingredient}>{ingredient}</span>;
-                }
-                const isIncluded = !removed.includes(ingredient);
-                return (
-                  <button
-                    className={`chip ingredient${isIncluded ? "" : " is-removed"}`}
-                    type="button"
-                    aria-pressed={isIncluded}
-                    key={ingredient}
-                    onClick={() =>
-                      setRemovedByProduct((current) => ({
-                        ...current,
-                        [selectedId]: isIncluded
-                          ? [...(current[selectedId] ?? []), ingredient]
-                          : (current[selectedId] ?? []).filter((item) => item !== ingredient),
-                      }))
-                    }
-                  >
-                    {ingredient}
-                  </button>
-                );
-              })}
-            </div>
-
-            <p className="field-label">Sauce</p>
-            <div className="chips">
-              {SAUCES.map((option) => (
-                <button
-                  className={`chip sauce${sauce === option ? " is-selected" : ""}`}
-                  type="button"
-                  aria-pressed={sauce === option}
-                  key={option}
-                  onClick={() => setSauce(option)}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
-
-            <div className="buy-row">
-              <Quantity value={quantity} onChange={setQuantity} />
-              <span className="price">{euro(selectedProduct.price * quantity)}</span>
-              <button
-                className="primary-button add-button"
-                type="button"
-                onClick={() =>
-                  addToCart({
-                    productId: selectedId,
-                    sauce,
-                    removed,
-                    quantity,
-                  })
-                }
-              >
-                Ajouter au panier
+            <div className="hero-product-actions">
+              <span className="price">{euro(selectedProduct.price)}</span>
+              <button className="secondary-button" type="button" onClick={() => openProductDetails(selectedId)}>
+                Voir le plat
               </button>
             </div>
           </div>
@@ -422,16 +400,21 @@ function App() {
               className="hero-visual"
               onPointerDown={(event) => {
                 if (event.target.closest("button")) return;
+                swipeClickBlocked.current = false;
                 swipeStartX.current = event.clientX;
               }}
               onPointerUp={(event) => {
                 if (swipeStartX.current === null) return;
                 const swipeDistance = event.clientX - swipeStartX.current;
-                if (Math.abs(swipeDistance) > 45) moveProduct(swipeDistance < 0 ? 1 : -1);
+                if (Math.abs(swipeDistance) > 45) {
+                  swipeClickBlocked.current = true;
+                  moveProduct(swipeDistance < 0 ? 1 : -1);
+                }
                 swipeStartX.current = null;
               }}
               onPointerCancel={() => {
                 swipeStartX.current = null;
+                swipeClickBlocked.current = false;
               }}
             >
               <button
@@ -447,6 +430,13 @@ function App() {
                 product={selectedProduct}
                 removed={removed}
                 className={`hero-food${changeAnimation ? ` is-changing is-${changeAnimation.direction}` : ""}`}
+                onClick={() => {
+                  if (swipeClickBlocked.current) {
+                    swipeClickBlocked.current = false;
+                    return;
+                  }
+                  openProductDetails(selectedId);
+                }}
               />
               <button
                 className="visual-arrow visual-arrow--next"
@@ -494,7 +484,7 @@ function App() {
           <div className="menu-grid">
             {visibleProducts.map((product) => (
               <article className="menu-card" key={product.id}>
-                <FoodVisual product={product} />
+                <FoodVisual product={product} onClick={() => openProductDetails(product.id)} />
                 <h3>{product.name}</h3>
                 <p>{product.description}</p>
                 <div className="card-meta">
@@ -505,12 +495,9 @@ function App() {
                   <button
                     className="secondary-button"
                     type="button"
-                    onClick={() => {
-                      chooseProduct(product.id);
-                      window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-                    }}
+                    onClick={() => openProductDetails(product.id)}
                   >
-                    Personnaliser
+                    Voir le plat
                   </button>
                   <button
                     className="quick-add"
@@ -574,7 +561,108 @@ function App() {
         <span>Viande halal · Fait maison</span>
       </footer>
 
-      {(cartOpen || dialogOpen) && <button className="overlay" type="button" aria-label="Fermer" onClick={closeOverlays} />}
+      {(cartOpen || dialogOpen || productPanel) && <button className="overlay" type="button" aria-label="Fermer" onClick={closeOverlays} />}
+
+      {productPanel === "details" && (
+        <section className="product-modal product-details-modal" role="dialog" aria-modal="true" aria-labelledby="product-details-title">
+          <button className="close-button product-modal-close" type="button" aria-label="Fermer" onClick={closeOverlays}>
+            {"\u00d7"}
+          </button>
+          <FoodVisual product={selectedProduct} removed={removed} className="product-panel-food" />
+          <h2 id="product-details-title">{selectedProduct.name}</h2>
+          <p>{selectedProduct.description}</p>
+          <div className="product-panel-meta">
+            <Rating rating={selectedProduct.rating} />
+            <span>{selectedProduct.rating.toFixed(1).replace(".", ",")} {"\u00b7"} {selectedProduct.reviews} avis</span>
+            <strong>{euro(selectedProduct.price)}</strong>
+          </div>
+          <div className="product-panel-actions">
+            <button className="secondary-button" type="button" onClick={openCustomization}>
+              Modifier ce plat
+            </button>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => {
+                addToCart({ productId: selectedId, sauce: SAUCES[0], removed: [], quantity: 1 });
+                setProductPanel(null);
+              }}
+            >
+              Ajouter au panier
+            </button>
+          </div>
+        </section>
+      )}
+
+      {productPanel === "customize" && (
+        <section className="product-modal customize-modal" role="dialog" aria-modal="true" aria-labelledby="customize-title">
+          <header className="product-modal-header">
+            <button className="text-button" type="button" onClick={() => setProductPanel("details")}>
+              Retour
+            </button>
+            <button className="close-button" type="button" aria-label="Fermer" onClick={closeOverlays}>
+              {"\u00d7"}
+            </button>
+          </header>
+          <h2 id="customize-title">Modifier {selectedProduct.name}</h2>
+          <FoodVisual product={selectedProduct} removed={removed} className="customize-preview" />
+          <p className="field-label">Choisis les ingredients a retirer</p>
+          <div className="chips">
+            {selectedProduct.ingredients.map((ingredient) => {
+              if (selectedId === "sasha" && ingredient === "Viande") {
+                return <span className="chip ingredient ingredient-fixed" key={ingredient}>{ingredient}</span>;
+              }
+              const isIncluded = !removed.includes(ingredient);
+              return (
+                <button
+                  className={`chip ingredient${isIncluded ? "" : " is-removed"}`}
+                  type="button"
+                  aria-pressed={isIncluded}
+                  key={ingredient}
+                  onClick={() =>
+                    setRemovedByProduct((current) => ({
+                      ...current,
+                      [selectedId]: isIncluded
+                        ? [...(current[selectedId] ?? []), ingredient]
+                        : (current[selectedId] ?? []).filter((item) => item !== ingredient),
+                    }))
+                  }
+                >
+                  {ingredient}
+                </button>
+              );
+            })}
+          </div>
+          <p className="field-label">Sauce</p>
+          <div className="chips">
+            {SAUCES.map((option) => (
+              <button
+                className={`chip sauce${sauce === option ? " is-selected" : ""}`}
+                type="button"
+                aria-pressed={sauce === option}
+                key={option}
+                onClick={() => setSauce(option)}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+          <div className="buy-row customize-buy-row">
+            <Quantity value={quantity} onChange={setQuantity} />
+            <span className="price">{euro(selectedProduct.price * quantity)}</span>
+            <button
+              className="primary-button add-button"
+              type="button"
+              onClick={() => {
+                addToCart({ productId: selectedId, sauce, removed, quantity });
+                setProductPanel(null);
+              }}
+            >
+              Ajouter au panier
+            </button>
+          </div>
+        </section>
+      )}
 
       <aside className={`cart-drawer${cartOpen ? " is-open" : ""}`} aria-label="Panier">
         <header className="drawer-header">
