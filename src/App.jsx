@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const PRODUCTS = [
   {
@@ -10,42 +10,8 @@ const PRODUCTS = [
     category: "Kebabs",
     description:
       "Viande de veau et dinde rôtie à la broche, tranchée à la commande, pain maison et sauce à l’ail.",
-    ingredients: ["Viande", "Salade", "Tomates", "Oignons", "Cornichons"],
+    ingredients: ["Viande", "Salade", "Tomates", "Oignons", "Cornichons", "Bacon", "Oignon frit", "Fromage"],
     visual: "kebab",
-  },
-  {
-    id: "assiette",
-    name: "Assiette mixte",
-    price: 13,
-    rating: 9.6,
-    reviews: 94,
-    category: "Assiettes",
-    description:
-      "Poulet mariné, kefta et veau à la broche avec frites maison, riz safrané et crudités.",
-    ingredients: ["Poulet", "Kefta", "Frites", "Riz", "Tomates", "Oignons rouges"],
-    visual: "assiette",
-  },
-  {
-    id: "durum",
-    name: "Dürüm poulet",
-    price: 8,
-    rating: 8.1,
-    reviews: 76,
-    category: "Kebabs",
-    description: "Poulet mariné au citron et au paprika roulé dans une galette fine grillée.",
-    ingredients: ["Poulet", "Salade", "Tomates", "Oignons", "Fromage"],
-    visual: "durum",
-  },
-  {
-    id: "falafel",
-    name: "Falafel wrap",
-    price: 7.5,
-    rating: 8.4,
-    reviews: 52,
-    category: "Végétarien",
-    description: "Falafels croustillants, houmous, chou rouge mariné et tahini citronné.",
-    ingredients: ["Falafels", "Houmous", "Chou rouge", "Persil", "Tahini"],
-    visual: "falafel",
   },
   {
     id: "frites",
@@ -55,24 +21,22 @@ const PRODUCTS = [
     reviews: 210,
     category: "Accompagnements",
     description: "Pommes de terre coupées à la main, frites deux fois, sel d’épices maison.",
-    ingredients: ["Sel d’épices", "Persil"],
+    ingredients: ["Fromage", "Bacon", "Oignon frit"],
     visual: "frites",
-  },
-  {
-    id: "baklava",
-    name: "Baklava au miel",
-    price: 3.5,
-    rating: 9,
-    reviews: 41,
-    category: "Desserts",
-    description: "Feuilletés fins, pistaches concassées et miel de fleurs.",
-    ingredients: ["Pistaches", "Miel"],
-    visual: "baklava",
   },
 ];
 
 const SAUCES = ["Blanche", "Algérienne", "Harissa", "Samouraï", "Sans sauce"];
-const CATEGORIES = ["Tous", "Kebabs", "Assiettes", "Végétarien", "Accompagnements", "Desserts"];
+const CATEGORIES = ["Tous", "Kebabs", "Accompagnements"];
+const KEBAB_OPTION_CODES = [
+  ["Salade", "S"],
+  ["Tomates", "T"],
+  ["Oignons", "O"],
+  ["Cornichons", "C"],
+  ["Bacon", "B"],
+  ["Oignon frit", "R"],
+  ["Fromage", "F"],
+];
 const DAYS = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
 const HOURS = [
   [11, 23],
@@ -83,9 +47,55 @@ const HOURS = [
   [11, 25],
   [11, 25],
 ];
+const FOOD_LAYOUTS = {
+  kebab: [[28, 33], [67, 29], [53, 61], [28, 66], [73, 65], [48, 43], [75, 48], [42, 76]],
+  assiette: [[28, 32], [47, 42], [72, 63], [27, 70], [70, 32], [48, 73]],
+  durum: [[48, 30], [33, 54], [68, 51], [48, 72], [52, 48]],
+  falafel: [[30, 34], [67, 34], [51, 65], [28, 70], [72, 69]],
+  frites: [[50, 50]],
+  baklava: [[37, 39], [62, 61]],
+};
 
 const euro = (amount) =>
   `${amount.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+
+const ingredientClass = (ingredient) =>
+  ingredient
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+
+function getFriesImage(ingredients, removed) {
+  const selected = new Set(ingredients.filter((ingredient) => !removed.includes(ingredient)).map(ingredientClass));
+  const cheese = selected.has("fromage");
+  const bacon = selected.has("bacon");
+  const onion = selected.has("oignon-frit");
+  const variant = (src, offset = "0%") => ({ src: `/images/food/ingredients/${src}`, offset });
+
+  if (cheese && bacon && onion) return variant("frites-cheddar-bacon-oignon.png", "-5%");
+  if (cheese && bacon) return variant("frites-cheddar-bacon.png", "-4%");
+  if (cheese && onion) return variant("frites-cheddar-oignon.png", "-5%");
+  if (cheese) return variant("frites-cheddar.png");
+  if (bacon && onion) return variant("frites-bacon-oignon.png", "-5%");
+  if (bacon) return variant("frites-bacon.png", "-5%");
+  if (onion) return variant("frites-oignon.png", "-5%");
+  return variant("frite.png");
+}
+
+function getKebabImage(ingredients, removed) {
+  const mask = KEBAB_OPTION_CODES.reduce(
+    (value, [ingredient]) => (value << 1) | (ingredients.includes(ingredient) && !removed.includes(ingredient) ? 1 : 0),
+    0,
+  );
+  const code = `V${KEBAB_OPTION_CODES
+    .filter(([ingredient]) => ingredients.includes(ingredient) && !removed.includes(ingredient))
+    .map(([, letter]) => letter)
+    .join("")}`;
+  const number = String(128 - mask).padStart(3, "0");
+  return `/images/food/dishes/kebab-sasha/wrap_${number}_${code}.png`;
+}
 
 function getOpeningStatus(date) {
   const day = date.getDay();
@@ -98,15 +108,45 @@ function getOpeningStatus(date) {
 }
 
 function FoodVisual({ product, removed = [], className = "" }) {
+  const kebabImage = product.id === "sasha" ? getKebabImage(product.ingredients, removed) : null;
+  const friesImage = product.id === "frites" ? getFriesImage(product.ingredients, removed) : null;
+  const variantImage = kebabImage ?? friesImage?.src;
+  const visibleIngredients = product.id === "frites" || product.id === "sasha" ? [] : product.ingredients;
+
   return (
     <div className={`food-plate ${className}`} aria-hidden="true">
+      <img className="plate-image" src="/images/food/plate/H_M-removebg-preview.png" alt="" />
       <div className={`food food--${product.visual}`}>
-        {product.ingredients.map((ingredient, index) => (
-          <span
-            className={`food-detail food-detail--${index}${removed.includes(ingredient) ? " is-removed" : ""}`}
-            key={ingredient}
+        {variantImage ? (
+          <img
+            className={`food-base food-base--${product.visual}${friesImage ? " is-fries-variant" : " is-kebab-variant"}`}
+            key={variantImage}
+            src={variantImage}
+            alt=""
+            style={friesImage ? { "--fries-offset": friesImage.offset } : undefined}
+            onError={(event) => {
+              event.currentTarget.onerror = null;
+              event.currentTarget.src = kebabImage
+                ? "/images/food/dishes/kebab-sasha/wrap_128_V.png"
+                : "/images/food/ingredients/frite.png";
+            }}
           />
-        ))}
+        ) : (
+          <span className={`food-base food-base--${product.visual}`} />
+        )}
+        <div className="food-ingredients">
+          {visibleIngredients.map((ingredient, index) => {
+            const [left, top] = FOOD_LAYOUTS[product.visual][index];
+            return (
+              <span
+                className={`food-detail ingredient-${ingredientClass(ingredient)}${removed.includes(ingredient) ? " is-removed" : ""}`}
+                data-ingredient={ingredient}
+                key={ingredient}
+                style={{ left: `${left}%`, top: `${top}%` }}
+              />
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -138,6 +178,8 @@ function Quantity({ value, onChange, label = "Quantité" }) {
 
 function App() {
   const [selectedId, setSelectedId] = useState(PRODUCTS[0].id);
+  const [changeAnimation, setChangeAnimation] = useState(null);
+  const swipeStartX = useRef(null);
   const [quantity, setQuantity] = useState(1);
   const [sauce, setSauce] = useState(SAUCES[0]);
   const [removedByProduct, setRemovedByProduct] = useState({});
@@ -190,23 +232,29 @@ function App() {
         setDialogOpen(false);
       }
       if (event.target instanceof HTMLElement && ["INPUT", "TEXTAREA"].includes(event.target.tagName)) return;
-      if (event.key === "ArrowRight") {
-        const index = PRODUCTS.findIndex((product) => product.id === selectedId);
-        chooseProduct(PRODUCTS[(index + 1) % PRODUCTS.length].id);
-      }
-      if (event.key === "ArrowLeft") {
-        const index = PRODUCTS.findIndex((product) => product.id === selectedId);
-        chooseProduct(PRODUCTS[(index - 1 + PRODUCTS.length) % PRODUCTS.length].id);
-      }
+      if (event.key === "ArrowRight") moveProduct(1);
+      if (event.key === "ArrowLeft") moveProduct(-1);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selectedId]);
 
-  function chooseProduct(id) {
+  function chooseProduct(id, direction) {
     if (id === selectedId) return;
+    const currentIndex = PRODUCTS.findIndex((product) => product.id === selectedId);
+    const nextIndex = PRODUCTS.findIndex((product) => product.id === id);
+    setChangeAnimation({
+      direction: direction ? (direction > 0 ? "next" : "previous") : nextIndex > currentIndex ? "next" : "previous",
+      key: (changeAnimation?.key ?? 0) + 1,
+    });
     setSelectedId(id);
     setQuantity(1);
+  }
+
+  function moveProduct(direction) {
+    const index = PRODUCTS.findIndex((product) => product.id === selectedId);
+    const nextIndex = (index + direction + PRODUCTS.length) % PRODUCTS.length;
+    chooseProduct(PRODUCTS[nextIndex].id, direction);
   }
 
   function addToCart(item) {
@@ -293,9 +341,13 @@ function App() {
       <main id="top">
         <section className="hero" aria-labelledby="product-name">
           <div className="composer">
-            <h1 id="product-name">{selectedProduct.name}</h1>
-            <p className="description">{selectedProduct.description}</p>
-            <div className="product-meta">
+            <h1 id="product-name" className={changeAnimation ? `product-copy is-${changeAnimation.direction}` : ""}>
+              {selectedProduct.name}
+            </h1>
+            <p className={`description${changeAnimation ? ` product-copy is-${changeAnimation.direction}` : ""}`}>
+              {selectedProduct.description}
+            </p>
+            <div className={`product-meta${changeAnimation ? ` product-copy is-${changeAnimation.direction}` : ""}`}>
               <Rating rating={selectedProduct.rating} />
               <span>
                 {selectedProduct.rating.toFixed(1).replace(".", ",")} · {selectedProduct.reviews} avis
@@ -305,6 +357,9 @@ function App() {
             <p className="field-label">Touchez un ingrédient pour le retirer</p>
             <div className="chips">
               {selectedProduct.ingredients.map((ingredient) => {
+                if (selectedId === "sasha" && ingredient === "Viande") {
+                  return <span className="chip ingredient ingredient-fixed" key={ingredient}>{ingredient}</span>;
+                }
                 const isIncluded = !removed.includes(ingredient);
                 return (
                   <button
@@ -363,8 +418,44 @@ function App() {
           </div>
 
           <div className="visual-column">
-            <div className="hero-visual">
-              <FoodVisual product={selectedProduct} removed={removed} className="hero-food" />
+            <div
+              className="hero-visual"
+              onPointerDown={(event) => {
+                if (event.target.closest("button")) return;
+                swipeStartX.current = event.clientX;
+              }}
+              onPointerUp={(event) => {
+                if (swipeStartX.current === null) return;
+                const swipeDistance = event.clientX - swipeStartX.current;
+                if (Math.abs(swipeDistance) > 45) moveProduct(swipeDistance < 0 ? 1 : -1);
+                swipeStartX.current = null;
+              }}
+              onPointerCancel={() => {
+                swipeStartX.current = null;
+              }}
+            >
+              <button
+                className="visual-arrow visual-arrow--previous"
+                type="button"
+                aria-label="Plat précédent"
+                onClick={() => moveProduct(-1)}
+              >
+                ←
+              </button>
+              <FoodVisual
+                key={`${selectedId}-${changeAnimation?.key ?? 0}`}
+                product={selectedProduct}
+                removed={removed}
+                className={`hero-food${changeAnimation ? ` is-changing is-${changeAnimation.direction}` : ""}`}
+              />
+              <button
+                className="visual-arrow visual-arrow--next"
+                type="button"
+                aria-label="Plat suivant"
+                onClick={() => moveProduct(1)}
+              >
+                →
+              </button>
             </div>
             <div className="product-picker" aria-label="Choisir un plat">
               {PRODUCTS.map((product) => (
